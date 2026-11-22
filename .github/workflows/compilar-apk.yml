@@ -1,0 +1,77 @@
+name: Compilar Volumen+
+
+# Cada cambio en main compila Volumen+ firmada con la llave oficial y la publica en Releases.
+# La app la encuentra sola (⬆️ Buscar actualización) y se instala ENCIMA de la anterior.
+# Secreto necesario (Settings → Secrets and variables → Actions):
+#   VOLUMEN_LLAVE → el texto del archivo VOLUMEN_LLAVE.txt (la llave en base64)
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compilar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+
+      - name: Numero de version (siempre mayor que 2.0.19)
+        run: echo "VERSION_CODE=$((19 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Armar y revisar la llave oficial
+        env:
+          VOLUMEN_LLAVE: ${{ secrets.VOLUMEN_LLAVE }}
+        run: |
+          if [ -z "$VOLUMEN_LLAVE" ]; then
+            echo "::error::Falta el secreto VOLUMEN_LLAVE (Settings → Secrets and variables → Actions → New repository secret)."
+            exit 1
+          fi
+          F="$RUNNER_TEMP/volumenplus.keystore"
+          printf '%s' "$VOLUMEN_LLAVE" | tr -d ' \r\n\t' | base64 -d > "$F"
+          H=$(keytool -list -v -keystore "$F" -storepass volumenplus -alias volumenplus 2>/dev/null | grep -m1 'SHA256:' | sed 's/.*SHA256: *//; s/://g')
+          if [ "$H" != "2E1250F3EAC61AA7A142A95E869B97E7EBE076A085CB69485898318E0D8CC547" ]; then
+            echo "::error::La llave del secreto VOLUMEN_LLAVE no es la oficial de Volumen+ (huella: ${H:-ninguna}). Pega TODO el texto de VOLUMEN_LLAVE.txt."
+            exit 1
+          fi
+          echo "LLAVE_RUTA=$F" >> "$GITHUB_ENV"
+          echo "Llave oficial revisada: OK"
+
+      - name: Instalar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Compilar la app
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Revisar la firma del APK
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk VolumenPlus.apk
+          AS=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          "$AS" verify --print-certs VolumenPlus.apk | tee firma.txt
+          grep -qi "SHA-256 digest: 2e1250f3eac61aa7a142a95e869b97e7ebe076a085cb69485898318e0d8cc547" firma.txt || { echo "::error::El APK no quedó con la firma oficial"; exit 1; }
+
+      - name: Guardar el APK (Actions > Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: VolumenPlus-2.0.${{ env.VERSION_CODE }}
+          path: VolumenPlus.apk
+
+      - name: Publicar la version (Releases)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTAS=$(cat NOVEDADES.md 2>/dev/null || echo "Volumen+ 2.0.$VERSION_CODE")
+          gh release create "v2.0.$VERSION_CODE" VolumenPlus.apk --title "Volumen+ 2.0.$VERSION_CODE" --notes "$NOTAS" --latest

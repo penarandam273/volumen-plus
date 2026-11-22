@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.luis.volumenplus'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.luis.volumenplus"
+        minSdk 26
+        targetSdk 34
+        // Cada compilacion en GitHub sube el numero (19 + numero de la corrida): siempre se instala encima.
+        versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '20')
+        versionName "2.0." + (System.getenv('VERSION_CODE') ?: '20')
+    }
+
+    // Llave fija: las próximas versiones se instalan encima
+    signingConfigs {
+        fija {
+            // la llave NO va en el repositorio: GitHub la arma desde el secreto VOLUMEN_LLAVE
+            storeFile file(System.getenv('LLAVE_RUTA') ?: 'volumenplus.keystore')
+            storePassword 'volumenplus'
+            keyAlias 'volumenplus'
+            keyPassword 'volumenplus'
+        }
+    }
+
+    buildTypes {
+        debug { signingConfig signingConfigs.fija }
+        release {
+            // Produccion: nadie puede depurar la app en el telefono y el codigo queda protegido (ofuscado)
+            debuggable false
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.fija
+        }
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
