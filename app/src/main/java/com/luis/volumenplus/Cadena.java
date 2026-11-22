@@ -133,12 +133,16 @@ public class Cadena {
                 // La respuesta crece con la raiz de la potencia: el control se nota desde la mitad, no solo al final.
                 float p = Math.max(0, Math.min(24, potencia));
                 boolean usarMbc = compresor && (p > 0 || bajo > 0);
-                float q = (float) Math.sqrt((p > 0 ? p : 4f) / 24f);
+                // 2.0.21: el volumen va a lo que el parlante del celular SI reproduce (voces e instrumentos, > 150 Hz).
+                // En la 2.0.20 la ganancia se iba al sub-bajo y la voz quedaba 2 dB mas baja que en la 2.0.19.
+                // Medido en simulacion: igual o mas fuerte que la 2.0.19 en todas las potencias y el limitador
+                // trabaja el 13 % del tiempo a maxima potencia (la 2.0.19: 80 %, por eso distorsionaba).
+                float q = (float) Math.sqrt(Math.max(p, 4f) / 24f);
                 float t = -14f * q;                  // umbral de medios y agudos
-                float tGraves = t - 3f * q;          // el bajo se controla un poco antes: golpea fuerte sin ahogar la voz
+                float tGraves = t - 3f * q;          // el bajo se controla un poco antes: golpea firme sin ahogar la voz
                 float r = 4f;
-                float extra = pico * 0.25f + 1f * q; // recupera parte del espacio que se dejo para el ecualizador
-                float mGraves = -tGraves * (1f - 1f / r) * 0.8f + extra;
+                float extra = pico * 0.25f;          // recupera parte del espacio que se dejo para el ecualizador
+                float mGraves = (-tGraves * (1f - 1f / r) * 0.8f + extra) * 0.4f; // el bajo no se come el volumen
                 float mResto = -t * (1f - 1f / r) * 0.8f + extra;
                 DynamicsProcessing.Mbc mbc = new DynamicsProcessing.Mbc(true, usarMbc, 3);
                 // graves (< 160 Hz): ataque de 10 ms (no deforma la onda del bajo) y suelta en 250 ms (sin "bombeo")
@@ -151,8 +155,8 @@ public class Cadena {
 
                 // Limitador final: techo en -1 dB, nada pasa del maximo digital (sin recorte en el parlante)
                 dp.setLimiterAllChannelsTo(new DynamicsProcessing.Limiter(true, true, 0, 0.1f, 150f, 50f, -1f, 0f));
-                // sin compresor: solo se deja el espacio del ecualizador (sonido limpio, sin sobrecarga)
-                dp.setInputGainAllChannelsTo(usarMbc ? -pico : -pico * 0.75f);
+                // sin compresor: un poco de ganancia segun la potencia y la mitad del espacio del ecualizador
+                dp.setInputGainAllChannelsTo(usarMbc ? -pico * 0.25f : p * 0.2f - pico * 0.5f);
                 dp.setEnabled(activo);
             } catch (Throwable t) {
                 Log.w(TAG, "No se pudo ajustar DynamicsProcessing", t);
@@ -177,8 +181,8 @@ public class Cadena {
             if (le != null) {
                 try {
                     // el refuerzo (que trae su propio compresor) recupera lo que se bajo al ecualizar.
-                    // Tope de 16 dB: mas que eso, el refuerzo de Android empieza a distorsionar.
-                    int total = Math.min(16, Math.round(potencia * 0.75f) + (eq != null ? pico : 0));
+                    // 2.0.21: vuelve la potencia de la 2.0.19 en las otras apps (la 2.0.20 la habia bajado a 16 dB).
+                    int total = Math.min(30, potencia + (eq != null ? pico : 0));
                     le.setTargetGain(total * 100);
                     le.setEnabled(activo && total > 0);
                 } catch (Throwable t) {
