@@ -32,6 +32,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Switch;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -77,11 +78,18 @@ public class MainActivity extends Activity {
     private volatile int turnoPredictor = 0;
     private boolean escribiendoYo = false;
     private EnLinea.Sugerencia muestra;
-    private LinearLayout lista, modos;
+    private LinearLayout modos;
+    /** 2.0.22: las listas de pistas van en ventanas cortas (no una lista enorme). */
+    private Ventana lista, aprendido;
+    private ImageView ivCaratula;
+    private String caratulaMostrada = "";
+    private TextView tAprende;
+    private int temaAprendido = 0;
+    private LinearLayout chipsAprende;
     private Switch swActivo, swComp, swGlobal, swFlac;
     private EditText etBuscar;
     private TextView tLinea;
-    private LinearLayout resultados;
+    private Ventana resultados;
     private boolean arrastrando = false;
     private int listaPintada = -2;
 
@@ -98,9 +106,11 @@ public class MainActivity extends Activity {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 10);
         }
         setContentView(armar());
+        pintarAprendido();
         enviar(MotorService.A_INICIAR, -1, -1);
         revisarEnSegundoPlano("abriste la app");
         if (Actualizador.tocaRevisar(this)) h.postDelayed(() -> actualizar(false), 4000);
+        if (AprendeYouTube.tocaAprender(this)) h.postDelayed(() -> aprenderDeYouTube(false), 15000);
         // si la app funciona un minuto sin fallas, esta version queda como la "buena" y se respaldan tus datos
         h.postDelayed(() -> Guardian.marcarBuena(this), 60_000);
         abrirDesdeOtraApp(getIntent());
@@ -202,6 +212,22 @@ public class MainActivity extends Activity {
         }
         dj.addView(boton("🔥 Música nueva y tendencias", v -> manos.nueva("Latin")));
 
+        // 2.0.22: el DJ aprende de YouTube lo mas sonado y con eso arma las fiestas
+        dj.addView(subtitulo("🧠 Lo que aprendí de YouTube (lo más sonado)"));
+        tAprende = texto("", 12, SUAVE);
+        dj.addView(tAprende);
+        chipsAprende = chips(dj);
+        for (int i = 0; i < AprendeYouTube.TEMAS.length; i++) {
+            final int e = i;
+            chipsAprende.addView(boton(AprendeYouTube.TEMAS[i], v -> { temaAprendido = e; pintarAprendido(); }));
+        }
+        aprendido = new Ventana(this, boton("Ver más", null));
+        dj.addView(aprendido);
+        LinearLayout fa = fila();
+        fa.addView(boton("🧠 Aprender ahora", v -> aprenderDeYouTube(true)), peso());
+        fa.addView(boton("Puente (opcional)", v -> pedirPuente()), peso());
+        dj.addView(fa);
+
         dj.addView(subtitulo("¿Dónde está sonando? (ecualiza para ese equipo)"));
         equipos = chips(dj);
         for (int i = 0; i < Ajustes.EQUIPOS.length; i++) {
@@ -241,6 +267,17 @@ public class MainActivity extends Activity {
 
         // --- Reproductor
         LinearLayout rep = tarjeta(raiz, "Reproductor");
+        ivCaratula = new ImageView(this);
+        ivCaratula.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        ivCaratula.setClipToOutline(true);
+        GradientDrawable marco = new GradientDrawable();
+        marco.setCornerRadius(dp(18));
+        ivCaratula.setBackground(marco);
+        LinearLayout.LayoutParams lpc = new LinearLayout.LayoutParams(dp(240), dp(240));
+        lpc.gravity = Gravity.CENTER_HORIZONTAL;
+        lpc.setMargins(0, dp(6), 0, dp(10));
+        rep.addView(ivCaratula, lpc);
+        Caratula.poner(ivCaratula, "Volumen+ Pro", "", false, null, 480);
         tTitulo = texto("Agrega tus canciones para empezar", 17, TEXTO);
         tTitulo.setTypeface(Typeface.DEFAULT_BOLD);
         rep.addView(tTitulo);
@@ -295,8 +332,7 @@ public class MainActivity extends Activity {
         listasFila.addView(boton("Mis listas", v -> misListas()), peso());
         rep.addView(listasFila);
         rep.addView(texto("Sonando ahora", 14, ACENTO));
-        lista = new LinearLayout(this);
-        lista.setOrientation(LinearLayout.VERTICAL);
+        lista = new Ventana(this, boton("Ver más", null));
         rep.addView(lista);
 
         // --- Musica en linea
@@ -337,8 +373,7 @@ public class MainActivity extends Activity {
         lin.addView(swFlac);
         tLinea = texto("Escribe y toca una sugerencia, o usa Para ti y Éxitos de hoy.", 13, SUAVE);
         lin.addView(tLinea);
-        resultados = new LinearLayout(this);
-        resultados.setOrientation(LinearLayout.VERTICAL);
+        resultados = new Ventana(this, boton("Ver más", null));
         lin.addView(resultados);
 
         // --- Sonido
@@ -351,7 +386,7 @@ public class MainActivity extends Activity {
         modos = fila();
         for (int m : Ajustes.ORDEN_MODOS) {
             final int mm = m;
-            modos.addView(boton(Ajustes.MODOS[m].replace("nitido", "nítido").replace("Maxima", "Máxima"),
+            modos.addView(boton(nombreModo(m),
                     v -> { aj.setModo(mm); cargarControles(); aplicar(); }));
         }
         hs.addView(modos);
@@ -513,19 +548,20 @@ public class MainActivity extends Activity {
         String t = m.titulo();
         if (m.cargando()) t = "⏳ Cargando… " + (m.reintentosActuales() > 0 ? "(se cayó la señal, retomando donde iba) " : "") + t;
         if (!t.isEmpty() && !t.contentEquals(tTitulo.getText())) tTitulo.setText(t);
+        pintarCaratula();
         bPlay.setText(m.estaSonando() ? "⏸" : "▶");
         int d = m.duracion(), p = m.posicion();
         if (!arrastrando) { sbPos.setMax(Math.max(1, d)); sbPos.setProgress(p); }
         tTiempo.setText(hora(p) + " / " + hora(d));
         if (aj.global() && m.estaSonando()) {
-            tGlobal.setText("Mientras suena este reproductor, el refuerzo general descansa para no procesar el sonido dos veces "
+            ponerSiCambia(tGlobal, "Mientras suena este reproductor, el refuerzo general descansa para no procesar el sonido dos veces "
                     + "(eso causaba cortes y vaivén). Vuelve solo al pausar, para YouTube, Spotify y videos.");
         } else if (aj.global()) {
-            tGlobal.setText(m.globalConectado()
+            ponerSiCambia(tGlobal, m.globalConectado()
                     ? "Conectado a la salida del teléfono" + (m.otrasApps() > 0 ? " y a " + m.otrasApps() + " app(s) de música" : "") + "."
                     : "Este equipo no deja procesar la salida general; abre tu app de música y vuelve a activar.");
         } else {
-            tGlobal.setText("Apagado: el refuerzo solo se aplica a este reproductor.");
+            ponerSiCambia(tGlobal, "Apagado: el refuerzo solo se aplica a este reproductor.");
         }
         if (listaPintada != aj.actual()) pintarLista();
         String eq = aj.equipo() == 0
@@ -537,25 +573,71 @@ public class MainActivity extends Activity {
     }
 
     private void pintarLista() {
-        lista.removeAllViews();
         List<Ajustes.Cancion> l = aj.lista();
         int act = aj.actual();
         listaPintada = act;
         if (l.isEmpty()) {
-            lista.addView(texto("La lista está vacía. Toca \"+ Agregar canciones\" (MP3, FLAC, WAV, AAC, OGG…).", 13, SUAVE));
+            lista.poner(1, i -> texto("La lista está vacía. Toca \"+ Agregar canciones\" (MP3, FLAC, WAV, AAC, OGG…).", 13, SUAVE));
             return;
         }
-        for (int i = 0; i < l.size(); i++) {
-            final int k = i;
-            TextView tv = texto((i == act ? "♪ " : (i + 1) + ". ") + l.get(i).nombre, 15, i == act ? ACENTO : TEXTO);
-            tv.setPadding(dp(4), dp(10), dp(4), dp(10));
-            tv.setOnClickListener(v -> {
-                aj.setActual(k);
-                enviar(MotorService.A_TOCAR, k, -1);
+        lista.poner(l.size(), i -> {
+            Ajustes.Cancion c = l.get(i);
+            View v = filaPista(c.nombre, (i == act ? "♪ " : (i + 1) + ". "), i == act, Caratula.imagenDe(this, c.uri));
+            v.setOnClickListener(x -> {
+                aj.setActual(i);
+                enviar(MotorService.A_TOCAR, i, -1);
                 pintarLista();
             });
-            lista.addView(tv);
+            return v;
+        });
+        lista.mostrar(act);
+    }
+
+    /** Una fila de pista con su caratula pequeña. */
+    private LinearLayout filaPista(String nombre, String prefijo, boolean resaltar, String imagen) {
+        String[] pt = Caratula.partes(nombre);
+        LinearLayout it = fila();
+        it.setGravity(Gravity.CENTER_VERTICAL);
+        it.setPadding(dp(2), dp(4), dp(2), dp(4));
+        ImageView iv = new ImageView(this);
+        iv.setClipToOutline(true);
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(8));
+        iv.setBackground(g);
+        Caratula.poner(iv, pt[0], pt[1], "1".equals(pt[2]), imagen, 96);
+        it.addView(iv, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout txt = new LinearLayout(this);
+        txt.setOrientation(LinearLayout.VERTICAL);
+        txt.setPadding(dp(10), 0, dp(4), 0);
+        TextView a = texto(prefijo + pt[0], 15, resaltar ? ACENTO : TEXTO);
+        a.setSingleLine(true);
+        a.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        if (resaltar) a.setTypeface(Typeface.DEFAULT_BOLD);
+        txt.addView(a);
+        if (!pt[1].isEmpty()) {
+            TextView d = texto(pt[1], 12, SUAVE);
+            d.setSingleLine(true);
+            d.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            txt.addView(d);
         }
+        it.addView(txt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        return it;
+    }
+
+    /** Caratula grande de lo que suena (solo cambia cuando cambia la cancion). */
+    private void pintarCaratula() {
+        List<Ajustes.Cancion> l = aj.lista();
+        int act = aj.actual();
+        if (l.isEmpty() || act < 0 || act >= l.size()) return;
+        Ajustes.Cancion c = l.get(act);
+        if (c.uri.equals(caratulaMostrada)) return;
+        caratulaMostrada = c.uri;
+        String[] pt = Caratula.partes(c.nombre);
+        Caratula.poner(ivCaratula, pt[0], pt[1], "1".equals(pt[2]), Caratula.imagenDe(this, c.uri), 480);
+    }
+
+    private void ponerSiCambia(TextView t, String s) {
+        if (!s.contentEquals(t.getText())) t.setText(s); // no redibuja la pantalla cada medio segundo (menos cortes)
     }
 
     private void pintarReproduccion() {
@@ -693,6 +775,67 @@ public class MainActivity extends Activity {
         }, "VolumenPlus-instalar").start();
     }
 
+    private static String nombreModo(int m) {
+        return Ajustes.MODOS[m].replace("nitido", "nítido").replace("Maxima", "Máxima").replace("Pico Skorpion", "Picó Skorpión");
+    }
+
+    // ---------- lo que el DJ aprende de YouTube ----------
+    private void pintarAprendido() {
+        if (aprendido == null) return;
+        for (int i = 0; i < chipsAprende.getChildCount(); i++) {
+            Button b = (Button) chipsAprende.getChildAt(i);
+            boolean on = i == temaAprendido;
+            b.setBackground(fondoBoton(on ? ACENTO : BOTON));
+            b.setTextColor(on ? Color.rgb(8, 20, 36) : TEXTO);
+        }
+        long f = AprendeYouTube.fecha(this);
+        List<AprendeYouTube.Tema> l = AprendeYouTube.top(this, temaAprendido, 40);
+        tAprende.setText(f == 0 ? "Todavía no he aprendido: toca «Aprender ahora» (usa unos 10 MB, mejor con wifi)."
+                : "Aprendido el " + android.text.format.DateFormat.format("dd/MM/yyyy", f) + " · se refresca cada semana. Toca una y la busco completa.");
+        aprendido.poner(l.size(), i -> {
+            AprendeYouTube.Tema x = l.get(i);
+            View v = filaPista(x.titulo + " · " + x.artista + (x.vistas > 0 ? " · " + AprendeYouTube.vistas(x.vistas) + " vistas" : ""),
+                    (i + 1) + ". ", false, null);
+            v.setOnClickListener(c -> tocarCancion(x.titulo, x.artista));
+            return v;
+        });
+    }
+
+    private void aprenderDeYouTube(boolean avisar) {
+        if (tAprende != null) tAprende.setText("🧠 Aprendiendo de YouTube lo más sonado… (toma un minuto)");
+        new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); // no le quita fuerza a la musica
+            String r;
+            try { r = AprendeYouTube.aprender(this); }
+            catch (Exception e) { r = "No pude aprender de YouTube ahora (" + e.getMessage() + "). Si sigue fallando, configura el puente de Apps Script."; }
+            final String msj = r;
+            runOnUiThread(() -> {
+                pintarAprendido();
+                if (avisar) manos.responder(msj);
+                else if (tAprende != null && AprendeYouTube.fecha(this) == 0) tAprende.setText(msj);
+            });
+        }, "VolumenPlus-aprende").start();
+    }
+
+    private void pedirPuente() {
+        EditText et = new EditText(this);
+        et.setHint("https://script.google.com/macros/s/…/exec");
+        et.setText(AprendeYouTube.puente(this));
+        et.setSingleLine(true);
+        new AlertDialog.Builder(this)
+                .setTitle("Puente de YouTube (opcional)")
+                .setMessage("Solo hace falta si YouTube no responde desde el teléfono. Es un Apps Script tuyo (apps-script/YouTubeAprende.gs del repositorio) publicado como aplicación web. Pega aquí su dirección /exec.")
+                .setView(et)
+                .setPositiveButton("Guardar", (d, w) -> {
+                    String u = et.getText().toString().trim();
+                    if (!u.isEmpty() && !u.startsWith("https://script.google.com/")) { avisar("La dirección debe empezar por https://script.google.com/"); return; }
+                    AprendeYouTube.setPuente(this, u);
+                    avisar(u.isEmpty() ? "Puente quitado" : "Puente guardado");
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
     private void avisar(String t) {
         Toast.makeText(this, t, Toast.LENGTH_SHORT).show();
     }
@@ -802,18 +945,12 @@ public class MainActivity extends Activity {
                 List<EnLinea.Sugerencia> r = EnLinea.exitos();
                 runOnUiThread(() -> {
                     tLinea.setText("Top de hoy (" + r.size() + "). Toca una: si hay versión completa gratis suena aquí; si no, se abre en YouTube Music con tu refuerzo.");
-                    int n = 1;
-                    for (EnLinea.Sugerencia x : r) {
-                        LinearLayout it = new LinearLayout(this);
-                        it.setOrientation(LinearLayout.VERTICAL);
-                        it.setPadding(dp(4), dp(8), dp(4), dp(8));
-                        TextView t = texto(n++ + ". " + x.titulo, 15, TEXTO);
-                        t.setTypeface(Typeface.DEFAULT_BOLD);
-                        it.addView(t);
-                        it.addView(texto(x.artista, 12, SUAVE));
+                    resultados.poner(r.size(), i -> {
+                        EnLinea.Sugerencia x = r.get(i);
+                        View it = filaPista(x.titulo + " · " + x.artista, (i + 1) + ". ", false, null);
                         it.setOnClickListener(v -> tocarCancion(x.titulo, x.artista));
-                        resultados.addView(it);
-                    }
+                        return it;
+                    });
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> tLinea.setText("No se pudieron cargar los éxitos. Revisa la conexión a internet."));
@@ -887,18 +1024,12 @@ public class MainActivity extends Activity {
                 : "No hay una versión completa y gratuita de esa canción. Prueba otra o busca una emisora de ese género.")
                 : r.size() + (radio ? " emisoras. Toca una para escucharla." : " canciones completas. Toca una y suena; con + la guardas en Mi lista."));
         ultimos = r;
-        for (EnLinea.Resultado x : r) {
-            LinearLayout it = fila();
-            it.setGravity(Gravity.CENTER_VERTICAL);
-            LinearLayout txt = new LinearLayout(this);
-            txt.setOrientation(LinearLayout.VERTICAL);
-            txt.setPadding(dp(4), dp(8), dp(4), dp(8));
-            TextView a = texto((x.radio ? "📻 " : "▶ ") + x.titulo, 15, TEXTO);
-            a.setTypeface(Typeface.DEFAULT_BOLD);
-            txt.addView(a);
-            txt.addView(texto(x.detalle, 12, SUAVE));
-            txt.setOnClickListener(v -> elegirResultado(x));
-            it.addView(txt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        resultados.poner(r.size(), i -> {
+            EnLinea.Resultado x = r.get(i);
+            LinearLayout it = filaPista((x.radio ? "📻 " : "") + x.titulo + (x.artista.isEmpty() ? "" : " · " + x.artista),
+                    x.aprendida ? "🔥 " : "", false, x.imagen);
+            it.getChildAt(1).setOnClickListener(v -> elegirResultado(x));
+            it.getChildAt(0).setOnClickListener(v -> elegirResultado(x));
             if (x.directo || x.radio) {
                 Button mas = boton("+", v -> {
                     boolean nueva = aj.agregarAMiLista(cancionDe(x));
@@ -907,11 +1038,12 @@ public class MainActivity extends Activity {
                 });
                 it.addView(mas, new LinearLayout.LayoutParams(dp(52), dp(44)));
             }
-            resultados.addView(it);
-        }
+            return it;
+        });
     }
 
     private Ajustes.Cancion cancionDe(EnLinea.Resultado x) {
+        Caratula.recordar(this, x.id, x.imagen);
         if (x.radio) return new Ajustes.Cancion(x.id, "📻 " + x.titulo);
         return new Ajustes.Cancion(x.id, x.titulo + (x.artista.isEmpty() ? "" : " · " + x.artista));
     }
@@ -1199,7 +1331,7 @@ public class MainActivity extends Activity {
             resultados.removeAllViews();
             new Thread(() -> {
                 try {
-                    List<EnLinea.Resultado> r = EnLinea.listaFiesta(estilo, 40);
+                    List<EnLinea.Resultado> r = EnLinea.listaFiesta(estilo, 40, AprendeYouTube.paraFiesta(MainActivity.this, estilo, 20));
                     runOnUiThread(() -> {
                         if (r.isEmpty()) { responder("No encontré canciones para esa fiesta. Revisa el internet."); return; }
                         aj.setTransiciones(true);
@@ -1281,11 +1413,13 @@ public class MainActivity extends Activity {
             responder("Potencia en más " + aj.potencia() + ".");
         }
 
+        @Override public void aprender() { aprenderDeYouTube(true); }
+
         @Override public void modo(int modo) {
             aj.setModo(modo);
             cargarControles();
             aplicar();
-            responder("Modo " + Ajustes.MODOS[modo].replace("nitido", "nítido").replace("Maxima", "Máxima") + ".");
+            responder("Modo " + nombreModo(modo) + ".");
         }
 
         @Override public void equipo(int e) {

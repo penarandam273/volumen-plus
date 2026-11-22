@@ -29,6 +29,10 @@ public class EnLinea {
         /** true = "id" ya es la direccion de una cancion completa lista para sonar (Audius). */
         public final boolean directo;
         public String artista = "", genero = "", animo = "", tono = "";
+        /** Portada real (Audius, logo de la emisora), o vacio para que la app busque o dibuje una. */
+        public String imagen = "";
+        /** true = la escogio el DJ por lo que aprendio de YouTube. */
+        public boolean aprendida = false;
         public double bpm = 0;
         public int plays = 0;
         public long fecha = 0;
@@ -123,6 +127,8 @@ public class EnLinea {
             if (Double.isNaN(x.bpm)) x.bpm = 0;
             x.plays = o.optInt("play_count", 0);
             x.fecha = fecha(o.optString("release_date", o.optString("created_at", "")));
+            JSONObject art = o.optJSONObject("artwork");
+            if (art != null) x.imagen = art.optString("480x480", art.optString("150x150", ""));
             r.add(x);
         }
         return r;
@@ -337,9 +343,32 @@ public class EnLinea {
      * popularidad y lo reciente, en una curva de DJ (calentamiento, pico, cierre) y mezcladas por tempo y tono.
      */
     public static List<Resultado> listaFiesta(int estilo, int cuantas) throws Exception {
+        return listaFiesta(estilo, cuantas, null);
+    }
+
+    /**
+     * 2.0.22: "aprendidas" = lo mas sonado que el DJ aprendio de YouTube ({titulo, artista}). Se buscan completas y
+     * gratis (en paralelo, maximo 20 s) y entran primero a la fiesta; el resto se completa con lo de siempre.
+     */
+    public static List<Resultado> listaFiesta(int estilo, int cuantas, List<String[]> aprendidas) throws Exception {
         estilo = Math.max(0, Math.min(FIESTAS.length - 1, estilo));
         List<Resultado> todo = new ArrayList<>();
         Exception error = null;
+        final java.util.Set<Resultado> deYouTube = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+        if (aprendidas != null && !aprendidas.isEmpty()) {
+            java.util.concurrent.ExecutorService ex = java.util.concurrent.Executors.newFixedThreadPool(4);
+            List<java.util.concurrent.Future<Resultado>> fut = new ArrayList<>();
+            for (String[] a : aprendidas.subList(0, Math.min(20, aprendidas.size()))) fut.add(ex.submit(() -> versionCompleta(a[0], a[1])));
+            long hasta = System.currentTimeMillis() + 20000;
+            for (java.util.concurrent.Future<Resultado> f : fut) {
+                try {
+                    Resultado x = f.get(Math.max(1, hasta - System.currentTimeMillis()), java.util.concurrent.TimeUnit.MILLISECONDS);
+                    if (x != null) { x.aprendida = true; deYouTube.add(x); }
+                } catch (Exception ignored) { }
+            }
+            ex.shutdownNow();
+            sumarSinRepetir(todo, new ArrayList<>(deYouTube), 400);
+        }
         for (String g : GENEROS_FIESTA[estilo]) {
             try { sumarSinRepetir(todo, buscarAudiusUrl(AUDIUS + "/tracks/trending?" + APP + "&time=month&limit=60&genre=" + enc(g)), 400); }
             catch (Exception e) { error = e; }
@@ -353,14 +382,14 @@ public class EnLinea {
         long corte = System.currentTimeMillis() - 3L * 365 * 24 * 3600 * 1000;
         for (Resultado x : todo) {
             String[] d = x.detalle.split(" · ");
-            if (energiaAnimo(x.animo) < 0.4) continue;
+            if (!x.aprendida && energiaAnimo(x.animo) < 0.4) continue;
             buenas.add(x);
         }
         if (buenas.size() < 10) buenas = todo;
         // puntaje: energia + popularidad + novedad
         final java.util.Map<Resultado, Double> punt = new java.util.HashMap<>();
         for (Resultado x : buenas) {
-            double p = energia(x) * 2 + Math.log10(1 + x.plays) * 0.6 + (x.fecha >= corte ? 0.5 : 0);
+            double p = energia(x) * 2 + Math.log10(1 + x.plays) * 0.6 + (x.fecha >= corte ? 0.5 : 0) + (x.aprendida ? 3 : 0);
             punt.put(x, p);
         }
         Collections.sort(buenas, (a, b) -> Double.compare(punt.get(b), punt.get(a)));
@@ -606,7 +635,10 @@ public class EnLinea {
                     String url = o.optString("url_resolved", o.optString("url", ""));
                     if (url.isEmpty()) continue;
                     String det = o.optInt("bitrate", 0) + " kbps " + o.optString("codec", "") + " · " + o.optString("country", "");
-                    r.add(new Resultado(o.optString("name", "Emisora").trim(), det, url, true));
+                    Resultado em = new Resultado(o.optString("name", "Emisora").trim(), det, url, true);
+                    String logo = o.optString("favicon", "");
+                    if (logo.startsWith("https://")) em.imagen = logo;
+                    r.add(em);
                 }
                 return r;
             } catch (Exception e) {

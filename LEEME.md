@@ -97,3 +97,11 @@ VolumenPlus/
 ├── build.gradle, settings.gradle, gradle.properties
 └── gradlew, gradlew.bat, gradle/          ← Gradle wrapper
 ```
+
+## Puente de Apps Script para aprender de YouTube (opcional, 2.0.22)
+El DJ aprende lo más sonado leyendo las búsquedas de YouTube directamente desde el teléfono. Si un día YouTube no responde,
+publica el puente `apps-script/YouTubeAprende.gs`:
+1. https://script.google.com → Nuevo proyecto → pega el archivo y guarda.
+2. Implementar → Nueva implementación → Aplicación web (Ejecutar como: Yo · Acceso: Cualquier usuario) → autoriza.
+3. Copia la dirección `/exec` y pégala en Volumen+ → tarjeta del DJ → «Puente (opcional)».
+El puente solo devuelve títulos, canales, vistas y duración; nunca audio.

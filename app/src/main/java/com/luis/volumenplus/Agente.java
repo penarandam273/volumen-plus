@@ -28,6 +28,7 @@ public final class Agente {
         void calidad(boolean maxima);
         void queSuena();
         void revisar();                    // el guardian revisa y repara la app
+        void aprender();                   // aprende de YouTube lo mas sonado (2.0.22)
         void responder(String texto);      // lo dice en voz alta y lo muestra
     }
 
@@ -94,6 +95,11 @@ public final class Agente {
         // ---- guardian ----
         if (tiene(t, "revisa la app", "diagnostico", "diagnostica", "repara", "reparate", "arreglate", "chequeo", "salud")
                 || t.contains(" revisa la app ") || t.contains(" estado de la app ") || t.contains(" revisate ")) { m.revisar(); return; }
+        // ---- aprender de YouTube (2.0.22) ----
+        if (tiene(t, "aprende", "aprender", "aprendete", "estudia") && !tiene(t, "saluda", "saludo")) { m.aprender(); return; }
+        // ---- sonido de pico tipo Skorpion (2.0.22) ----
+        if (tiene(t, "skorpion", "escorpion", "scorpion", "picotero") || t.contains(" modo pico ") || t.contains(" sonido de pico ")
+                || t.contains(" sonido pico ") || t.contains(" como un pico ") || t.contains(" como pico ")) { m.modo(6); return; }
         // ---- saludos de locutor ----
         if (tiene(t, "saluda", "saludo", "saludos", "saludar", "dedica", "dedicatoria", "felicita", "felicitaciones", "cumpleanos")) {
             String a = nombres(resto(t, "dj", "manda", "mandale", "envia", "un", "una", "saludo", "saludos", "saluda", "saludar", "a", "dedica",

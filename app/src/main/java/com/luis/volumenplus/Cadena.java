@@ -138,23 +138,26 @@ public class Cadena {
                 // Medido en simulacion: igual o mas fuerte que la 2.0.19 en todas las potencias y el limitador
                 // trabaja el 13 % del tiempo a maxima potencia (la 2.0.19: 80 %, por eso distorsionaba).
                 float q = (float) Math.sqrt(Math.max(p, 4f) / 24f);
-                float t = -14f * q;                  // umbral de medios y agudos
+                // 2.0.22 (sonido de pico, "tipo Skorpion"): el bombo pasa con golpe (ataque de graves de 28 ms),
+                // medios limpios y la voz al frente. Medido en simulacion: el mismo volumen percibido que la 2.0.21,
+                // con el limitador trabajando menos (16 % del tiempo a maxima potencia, la 2.0.21: 17 %, la 2.0.19: 90 %).
+                float t = -16f * q;                  // umbral de medios y agudos
                 float tGraves = t - 3f * q;          // el bajo se controla un poco antes: golpea firme sin ahogar la voz
                 float r = 4f;
                 float extra = pico * 0.25f;          // recupera parte del espacio que se dejo para el ecualizador
-                float mGraves = (-tGraves * (1f - 1f / r) * 0.8f + extra) * 0.4f; // el bajo no se come el volumen
-                float mResto = -t * (1f - 1f / r) * 0.8f + extra;
+                float mGraves = (-tGraves * (1f - 1f / r) * 0.72f + extra) * 0.3f; // el bajo no se come el volumen
+                float mResto = -t * (1f - 1f / r) * 0.72f + extra + 0.6f * q;   // la voz y los instrumentos adelante
                 DynamicsProcessing.Mbc mbc = new DynamicsProcessing.Mbc(true, usarMbc, 3);
-                // graves (< 160 Hz): ataque de 10 ms (no deforma la onda del bajo) y suelta en 250 ms (sin "bombeo")
-                mbc.setBand(0, new DynamicsProcessing.MbcBand(usarMbc, 160f, 10f, 250f, r, tGraves, 8f, -90f, 1f, 0f, usarMbc ? mGraves : 0f));
+                // graves (< 160 Hz): ataque de 28 ms (deja pasar el golpe del bombo, como en un pico) y suelta en 220 ms
+                mbc.setBand(0, new DynamicsProcessing.MbcBand(usarMbc, 160f, 28f, 220f, r, tGraves, 8f, -90f, 1f, 0f, usarMbc ? mGraves : 0f));
                 // medios (160 Hz - 4 kHz): voces e instrumentos
                 mbc.setBand(1, new DynamicsProcessing.MbcBand(usarMbc, 4000f, 5f, 150f, r, t, 8f, -90f, 1f, 0f, usarMbc ? mResto : 0f));
                 // agudos (> 4 kHz): controla la "s" y los platillos sin opacar
                 mbc.setBand(2, new DynamicsProcessing.MbcBand(usarMbc, 20000f, 2f, 100f, r, t, 8f, -90f, 1f, 0f, usarMbc ? mResto - 0.5f : 0f));
                 dp.setMbcAllChannelsTo(mbc);
 
-                // Limitador final: techo en -1 dB, nada pasa del maximo digital (sin recorte en el parlante)
-                dp.setLimiterAllChannelsTo(new DynamicsProcessing.Limiter(true, true, 0, 0.1f, 150f, 50f, -1f, 0f));
+                // Limitador final: techo en -0.7 dB y ataque de 0.05 ms (atrapa los picos antes de que lleguen al parlante)
+                dp.setLimiterAllChannelsTo(new DynamicsProcessing.Limiter(true, true, 0, 0.05f, 150f, 50f, -0.7f, 0f));
                 // sin compresor: un poco de ganancia segun la potencia y la mitad del espacio del ecualizador
                 dp.setInputGainAllChannelsTo(usarMbc ? -pico * 0.25f : p * 0.2f - pico * 0.5f);
                 dp.setEnabled(activo);

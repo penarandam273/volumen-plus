@@ -87,7 +87,6 @@ public class Bufer extends MediaDataSource {
         cancelar = false;
         fallo = false;
         hilo = new Thread(this::descargar, "VolumenPlus-reserva");
-        hilo.setPriority(Thread.NORM_PRIORITY + 1);
         hilo.start();
     }
 
@@ -106,6 +105,8 @@ public class Bufer extends MediaDataSource {
     public int porcentaje() { return total > 0 ? (int) Math.min(100, descargado * 100 / total) : -1; }
 
     private void descargar() {
+        // 2.0.22: la descarga va con prioridad baja para no quitarle procesador a la musica que suena (menos cortes)
+        try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); } catch (Throwable ignored) { }
         HttpURLConnection con = null;
         try {
             long ya = parcial.exists() ? parcial.length() : 0;

@@ -18,9 +18,9 @@ public class Ajustes {
     public static final int POTENCIA_SEGURA = 12;
 
     /** Indice 5 = "Bajo + nitido": bajos potentes y voces claras a la vez (se quita el "barro" de 250-500 Hz). */
-    public static final String[] MODOS = {"Natural", "Alta fidelidad", "Bajos potentes", "Voces claras", "Maxima potencia", "Bajo + nitido"};
+    public static final String[] MODOS = {"Natural", "Alta fidelidad", "Bajos potentes", "Voces claras", "Maxima potencia", "Bajo + nitido", "Pico Skorpion"};
     /** Orden en que se muestran los botones (el combinado va de segundo). */
-    public static final int[] ORDEN_MODOS = {0, 5, 1, 2, 3, 4};
+    public static final int[] ORDEN_MODOS = {0, 5, 6, 1, 2, 3, 4};
     public static final int MODO_BAJO_NITIDO = 5;
     private static final int[][] MODO_BANDAS = {
             {0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -29,9 +29,11 @@ public class Ajustes {
             {-2, -1, 0, 1, 3, 4, 3, 1, 0, -1},
             {5, 4, 2, 0, -1, 1, 3, 3, 2, 1},
             {6, 5, 3, 0, -2, -1, 2, 4, 3, 1},
+            // 2.0.22 "Pico Skorpion": golpe en 60-125 Hz, sin barro en 250-500 Hz, voz presente y brillo (como un pico de la costa)
+            {4, 3, 2, -1, -2, 0, 1, 2, 1, 1},
     };
-    private static final int[] MODO_ESPACIAL = {0, 300, 200, 0, 300, 200};
-    private static final int[] MODO_POTENCIA = {6, 8, 10, 8, 18, 12};
+    private static final int[] MODO_ESPACIAL = {0, 300, 200, 0, 300, 200, 150};
+    private static final int[] MODO_POTENCIA = {6, 8, 10, 8, 18, 12, 14};
 
     public static final int REPETIR_NO = 0, REPETIR_TODO = 1, REPETIR_UNA = 2;
 

@@ -121,6 +121,9 @@ public class MotorService extends Service {
     private int reintentos = 0, volverA = 0, ultimaPos = 0, duracionConocida = 0;
     /** Reserva de la cancion que suena (version 2.0.20): se descarga entera mientras suena, sin cortes. */
     private Bufer bufer;
+    /** Caratula de lo que suena (notificacion y pantalla de bloqueo). */
+    private android.graphics.Bitmap caratula;
+    private String caratulaDe = "";
     private int turno = 0;
     private boolean precargada = false;
 
@@ -271,6 +274,7 @@ public class MotorService extends Service {
         aj.setActual(i);
         Ajustes.Cancion c = l.get(i);
         titulo = c.nombre;
+        cargarCaratula(c);
         esInternet = c.uri.startsWith("http");
         duracionConocida = 0;
         final int miTurno = ++turno;
@@ -585,6 +589,7 @@ public class MotorService extends Service {
                 .setSmallIcon(android.R.drawable.ic_lock_silent_mode_off)
                 .setContentTitle(titulo.isEmpty() ? "Volumen+ Pro" : titulo)
                 .setContentText(sub)
+                .setLargeIcon(caratula)
                 .setContentIntent(abrir)
                 .setOngoing(sonando || aj.global())
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
@@ -600,6 +605,25 @@ public class MotorService extends Service {
         else startForeground(NOTIF, n);
     }
 
+    /** Busca la portada (o dibuja el diseño) en segundo plano y la pone en la notificacion. */
+    private void cargarCaratula(Ajustes.Cancion c) {
+        if (c.uri.equals(caratulaDe)) return;
+        caratulaDe = c.uri;
+        final String uri = c.uri;
+        final String[] pt = Caratula.partes(c.nombre);
+        final String img = Caratula.imagenDe(this, uri);
+        new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            android.graphics.Bitmap b = Caratula.cargar(this, pt[0], pt[1], "1".equals(pt[2]), img, 512);
+            h.post(() -> {
+                if (!uri.equals(caratulaDe)) return;
+                caratula = b;
+                actualizarSesion();
+                try { notificar(); } catch (Throwable ignored) { }
+            });
+        }, "VolumenPlus-caratula").start();
+    }
+
     private void actualizarSesion() {
         if (ms == null) return;
         long acciones = PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE | PlaybackState.ACTION_PLAY_PAUSE
@@ -610,8 +634,10 @@ public class MotorService extends Service {
                 .setState(sonando ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED, posicion(), sonando ? 1f : 0f)
                 .build());
         ms.setMetadata(new MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, titulo.isEmpty() ? "Volumen+ Pro" : titulo)
+                .putString(MediaMetadata.METADATA_KEY_TITLE, titulo.isEmpty() ? "Volumen+ Pro" : Caratula.partes(titulo)[0])
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, Caratula.partes(titulo)[1])
                 .putLong(MediaMetadata.METADATA_KEY_DURATION, duracion())
+                .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, caratula)
                 .build());
     }
 
